@@ -1,0 +1,6 @@
+# Persönliche Unterlagen bleiben lokal
+projektbeschreibung-trainings-app.md
+trainingsplan_3.html
+
+.DS_Store
+node_modules/

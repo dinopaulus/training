@@ -1,0 +1,5 @@
+[
+  { "id": "A", "name": "Tag A", "note": "Kraft", "optional": false },
+  { "id": "B", "name": "Tag B", "note": "Kraft", "optional": false },
+  { "id": "C", "name": "Tag C", "note": "Ausdauer", "optional": true }
+]

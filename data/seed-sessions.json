@@ -1,0 +1,19 @@
+[
+  {
+    "id": "seed-2026-09-08",
+    "date": "2026-09-08",
+    "day": "A",
+    "note": "",
+    "startedAt": null,
+    "finishedAt": null,
+    "entries": [
+      { "exerciseId": "beinpresse", "sets": [ { "weight": 50, "reps": 12 }, { "weight": 50, "reps": 12 }, { "weight": 50, "reps": 12 } ] },
+      { "exerciseId": "rudermaschine", "sets": [ { "weight": 15, "reps": 12 }, { "weight": 20, "reps": 12 }, { "weight": 20, "reps": 12 } ] },
+      { "exerciseId": "brustpresse", "sets": [ { "weight": 27.5, "reps": 12 }, { "weight": 31.25, "reps": 12 }, { "weight": 31.25, "reps": 12 } ] },
+      { "exerciseId": "beinbeuger", "sets": [ { "weight": 35, "reps": 12 }, { "weight": 35, "reps": 12 }, { "weight": 33.75, "reps": 12 } ] },
+      { "exerciseId": "rueckenstrecker", "sets": [ { "weight": 65, "reps": 12 }, { "weight": 76.25, "reps": 12 }, { "weight": 72.5, "reps": 12 } ] },
+      { "exerciseId": "seitheben", "sets": [ { "weight": 12.5, "reps": 12 }, { "weight": 16.25, "reps": 12 }, { "weight": 16.25, "reps": 5 } ] },
+      { "exerciseId": "kneeling-twist", "sets": [ { "weight": 61.25, "reps": 12 }, { "weight": 61.25, "reps": 12 }, { "weight": 53.75, "reps": 12 } ] }
+    ]
+  }
+]
