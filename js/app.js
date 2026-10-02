@@ -658,6 +658,22 @@ function renderHistory() {
   renderTabs();
 }
 
+/** Holt die neueste Version: erst alles frisch laden (bricht ohne Netz ab, ohne etwas zu zerstören), dann Cache leeren und neu starten. */
+async function refreshApp() {
+  dataMsg = 'Lade die neueste Version …';
+  render();
+  try {
+    const urls = new Set(['./', ...performance.getEntriesByType('resource').map((r) => r.name).filter((u) => u.startsWith(location.origin))]);
+    await Promise.all([...urls].map((u) => fetch(u, { cache: 'reload' }).then((r) => { if (!r.ok) throw new Error(r.status); })));
+    for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister();
+    for (const k of await caches.keys()) await caches.delete(k);
+  } catch {
+    dataMsg = 'Kein Netz — Update nicht möglich. Die App bleibt unverändert.';
+    return render();
+  }
+  location.reload();
+}
+
 function renderData() {
   const n = state.sessions.length;
   const le = state.lastExport;
@@ -679,8 +695,17 @@ function renderData() {
       <div class="shead"><h2>Wiederherstellen</h2></div>
       <label class="big ghost filebtn">Sicherungsdatei auswählen<input type="file" accept=".json,application/json" data-import></label>
       <p class="sub">Einheiten, die schon da sind, werden nicht doppelt angelegt. Nichts wird gelöscht.</p>
+    </section>
+    <section>
+      <div class="shead"><h2>App</h2><div class="mono" id="ver"></div></div>
+      <button class="big ghost" data-act="refresh">Neu laden (Update holen)</button>
+      <p class="sub">Holt die neueste Version aus dem Netz. Deine Einheiten bleiben erhalten.</p>
     </section>`;
   renderTabs();
+  caches?.keys().then((k) => {
+    const el = document.getElementById('ver');
+    if (el) el.textContent = k.length ? `Version ${k.sort().pop().replace('training-', '')}` : 'ohne Offline-Cache';
+  }).catch(() => {});
 }
 
 // ---------- Ereignisse ----------
@@ -721,6 +746,7 @@ const actions = {
   discard: discardSession,
   sauna: toggleSauna,
   export: (d) => doExport(d.kind),
+  refresh: refreshApp,
   'delete-session': (d) => removeSession(d.id),
 };
 

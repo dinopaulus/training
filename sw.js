@@ -2,7 +2,7 @@
 // (im Studio ist das Netz schlecht). Im Hintergrund wird nachgeladen, die
 // neue Version greift beim nächsten Start. VERSION hochzählen, wenn Dateien
 // dazukommen oder wegfallen — dann wird der alte Cache aufgeräumt.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `training-${VERSION}`;
 const ASSETS = [
   './',
@@ -21,7 +21,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -36,7 +36,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
 
-  const fresh = fetch(req)
+  // 'no-cache': beim Nachladen den HTTP-Cache des Browsers (GitHub Pages: 10 Min.) umgehen
+  const fresh = fetch(req, { cache: 'no-cache' })
     .then(async (res) => {
       if (res.ok) await (await caches.open(CACHE)).put(req, res.clone());
       return res;
