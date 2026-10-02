@@ -12,7 +12,6 @@ statische Dateien, Vanilla JS, Daten in IndexedDB. Hintergrund und Regeln: siehe
 | `js/app.js` | Ansichten: Start, Einheit, Abschluss, Verlauf |
 | `js/progression.js` | Progressionsregel und Gewichtsvorschlag (ohne DOM, getestet) |
 | `js/db.js` | IndexedDB: `sessions` (abgeschlossene Einheiten), `meta` (laufende Einheit, Einstellungen) |
-| `js/timer.js` | Satzpausen-Timer mit Ton/Vibration |
 | `data/days.json` | Die Tage: A und B (Kraft, im Wechsel), C (Ausdauer, optional) |
 | `data/exercises.json` | Übungsdefinitionen inkl. Anleitung und Skizze |
 | `data/seed-sessions.json` | Einheit vom 8.9.2026, wird beim ersten Start einmalig eingespielt |
@@ -50,10 +49,11 @@ die Liste `ASSETS` anpassen und `VERSION` hochzählen.
   zeigt, wie viele Einheiten seit der letzten Sicherung dazugekommen sind.
 - Sauna ist keine Übung, sondern ein Häkchen beim Abschließen jeder Einheit („Danach Sauna")
   und erscheint so im Verlauf und im Export.
-- Vibration unterstützt Safari auf dem iPhone nicht; dort gibt es nur den Ton. Ist die App
-  im Hintergrund oder der Bildschirm gesperrt, kommt der Ton erst beim Zurückkehren.
-  Während einer Einheit hält die App den Bildschirm wach (sofern das Gerät es zulässt).
-- Ein leeres Wiederholungsfeld übernimmt beim Abhaken den Zielwert, der grau als Platzhalter dasteht.
+- Die App spielt nie Ton ab und hat keine Satzpause — Musik und Podcasts laufen ungestört weiter.
+  Während einer Einheit hält sie den Bildschirm wach (sofern das Gerät es zulässt).
+- Abgehakt wird pro Übung („Erledigt ✓"): Leere Felder bekommen dann die Zielwerte, bei der
+  nächsten Übung geht es direkt weiter. Gespeichert wird auch, was nur eingetragen, aber nicht
+  abgehakt wurde; offene Übungen zeigt der Abschluss-Bildschirm an.
 - Tagesvorschlag: A und B wechseln sich ab, aber jede Woche (ab Montag) beginnt mit A — ein
   ausgefallener Tag B wird nicht nachgeholt. Tag C ist optional und zählt für den Wechsel nicht.
 - Unwiderrufliche Aktionen (verwerfen, löschen, laufende Einheit ersetzen) fragen in der App

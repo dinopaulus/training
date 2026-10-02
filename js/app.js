@@ -1,12 +1,8 @@
 import { getSessions, putSession, deleteSession, getMeta, setMeta, delMeta, seedOnce } from './db.js';
 import { suggest, workingWeight, parseNum, isoDate, weekStart, nextDay } from './progression.js';
-import { createTimer, unlockAudio } from './timer.js';
-
-const REST_OPTIONS = [60, 75, 90];
 
 const $app = document.getElementById('app');
 const $bar = document.getElementById('bar');
-const $timer = document.getElementById('timer');
 
 const state = {
   days: [], // [{ id, name, note, optional }]
@@ -14,7 +10,6 @@ const state = {
   byId: {},
   sessions: [], // abgeschlossene Einheiten, chronologisch
   active: null, // laufende Einheit, liegt zusätzlich in meta/active
-  settings: { rest: 90 },
   lastExport: null, // { at, count } — wann zuletzt gesichert wurde
   ask: null, // offene Rückfrage vor einer unwiderruflichen Aktion: { do, ...Daten }
   open: new Set(), // aufgeklappte Einheiten im Verlauf
@@ -144,7 +139,8 @@ function ensureEntry(ex) {
     const sug = suggest(ex, historyFor(ex.id));
     const w = ex.mode === 'weight' && sug ? sug.weight : null;
     a.entries[ex.id] = {
-      sets: Array.from({ length: ex.targetSets }, () => ({ weight: w, reps: null, done: false })),
+      sets: Array.from({ length: ex.targetSets }, () => ({ weight: w, reps: null })),
+      done: false, // Übung als Ganzes erledigt
     };
     saveActiveSoon();
   }
@@ -152,7 +148,6 @@ function ensureEntry(ex) {
 }
 
 async function startSession(day) {
-  timer.stop();
   state.active = { id: uid(), day, startedAt: new Date().toISOString(), current: 0, entries: {} };
   await saveActive();
   go('#/einheit');
@@ -165,47 +160,65 @@ function showExercise(i) {
   window.scrollTo(0, 0);
 }
 
-function tickSet(k) {
-  const ex = currentExercise();
-  const sets = state.active.entries[ex.id].sets;
-  const s = sets[k];
-  if (s.done) {
-    s.done = false;
-  } else {
-    const req = REQUIRED[ex.mode];
-    if (req && s[req] == null) {
-      const inp = $app.querySelector(`.set[data-i="${k}"] input[data-f="${req}"]`);
-      inp.classList.add('need');
-      inp.focus();
-      return;
-    }
-    // Leeres Wiederholungsfeld übernimmt den Zielwert, der als Platzhalter dasteht.
-    if (ex.mode !== 'cardio' && s.reps == null) s.reps = ex.repRange[1];
-    s.done = true;
+/** Leere Felder einer erledigten Übung bekommen die Zielwerte bzw. das Gewicht des Satzes davor. */
+function fillDefaults(ex, entry) {
+  let prevWeight = null;
+  for (const s of entry.sets) {
     if (ex.mode === 'weight') {
-      for (let j = k + 1; j < sets.length; j++) if (!sets[j].done) sets[j].weight = s.weight;
+      if (s.weight == null) s.weight = prevWeight;
+      prevWeight = s.weight;
     }
-    // Nach Ausdauer oder Sauna gibt es keine Satzpause.
-    if (ex.mode !== 'minutes' && ex.mode !== 'cardio') {
-      unlockAudio();
-      timer.start(state.settings.rest);
-    }
+    if (ex.mode !== 'cardio' && s.reps == null) s.reps = ex.repRange[1];
   }
+}
+
+/** Sätze einer Übung, die gespeichert werden: bei erledigten alle, sonst die tatsächlich ausgefüllten. */
+function exerciseSets(ex, entry) {
+  const filled = (s) =>
+    ex.mode === 'cardio' ? s.minutes != null : s.reps != null && (ex.mode !== 'weight' || s.weight != null);
+  return entry.sets.filter(filled);
+}
+
+/** Übung als erledigt markieren; mit `advance` geht es direkt zur nächsten (oder zum Abschluss). */
+function markDone(advance) {
+  const ex = currentExercise();
+  const entry = state.active.entries[ex.id];
+  const req = REQUIRED[ex.mode];
+  if (req && entry.sets[0][req] == null) {
+    const inp = $app.querySelector(`.set[data-i="0"] input[data-f="${req}"]`);
+    inp.classList.add('need');
+    inp.focus();
+    return;
+  }
+  fillDefaults(ex, entry);
+  entry.done = true;
+  saveActive();
+  const list = dayExercises(state.active.day);
+  const i = list.indexOf(ex);
+  if (!advance) return renderWorkout();
+  if (i === list.length - 1) go('#/fertig');
+  else showExercise(i + 1);
+}
+
+function unmarkDone() {
+  state.active.entries[currentExercise().id].done = false;
   saveActive();
   renderWorkout();
 }
 
 function addSet() {
-  const sets = state.active.entries[currentExercise().id].sets;
-  const prev = sets[sets.length - 1];
-  sets.push({ weight: prev?.weight ?? null, level: prev?.level ?? null, reps: null, done: false });
+  const ex = currentExercise();
+  const entry = state.active.entries[ex.id];
+  const prev = entry.sets[entry.sets.length - 1];
+  entry.sets.push({ weight: prev?.weight ?? null, level: prev?.level ?? null, reps: null });
+  if (entry.done) fillDefaults(ex, entry);
   saveActive();
   renderWorkout();
 }
 
 function removeSet() {
   const sets = state.active.entries[currentExercise().id].sets;
-  if (sets.length > 1 && !sets[sets.length - 1].done) sets.pop();
+  if (sets.length > 1) sets.pop();
   saveActive();
   renderWorkout();
 }
@@ -214,7 +227,8 @@ async function finishSession() {
   const a = state.active;
   const entries = dayExercises(a.day)
     .map((ex) => {
-      const sets = (a.entries[ex.id]?.sets || []).filter((s) => s.done).map((s) => toSaved(ex, s));
+      const entry = a.entries[ex.id];
+      const sets = entry ? exerciseSets(ex, entry).map((s) => toSaved(ex, s)) : [];
       return sets.length ? { exerciseId: ex.id, sets } : null;
     })
     .filter(Boolean);
@@ -232,14 +246,12 @@ async function finishSession() {
   state.active = null;
   await saveActive();
   state.sessions = await getSessions();
-  timer.stop();
   go('#/verlauf');
 }
 
 async function discardSession() {
   state.active = null;
   await saveActive();
-  timer.stop();
   go('#/');
 }
 
@@ -344,12 +356,6 @@ async function importFile(file) {
   render();
 }
 
-async function setRest(sec) {
-  state.settings.rest = sec;
-  await setMeta('settings', state.settings);
-  render();
-}
-
 // ---------- Bildschirm wach halten während der Einheit ----------
 
 let wakeLock = null;
@@ -367,30 +373,6 @@ function releaseAwake() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && location.hash === '#/einheit') keepAwake();
-});
-
-// ---------- Timer-Leiste ----------
-
-$timer.innerHTML = `
-  <span class="t-label"></span><span class="t-time"></span>
-  <button class="t-btn t-adj" data-act="timer-add" data-sec="-15">−15</button>
-  <button class="t-btn t-adj" data-act="timer-add" data-sec="15">+15</button>
-  <button class="t-btn" data-act="timer-stop" aria-label="Pause beenden">✕</button>`;
-const $tLabel = $timer.querySelector('.t-label');
-const $tTime = $timer.querySelector('.t-time');
-let overT = null;
-
-const timer = createTimer((left, over) => {
-  clearTimeout(overT);
-  if (left === null) {
-    $timer.hidden = true;
-    return;
-  }
-  $timer.hidden = false;
-  $timer.classList.toggle('over', over);
-  $tLabel.textContent = over ? 'Pause vorbei' : 'Pause';
-  $tTime.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-  if (over) overT = setTimeout(() => timer.stop(), 8000);
 });
 
 // ---------- Ansichten ----------
@@ -451,11 +433,7 @@ function renderHome() {
     <div class="note">
       <p><b>Aufwärmen:</b> 5 Minuten Crosstrainer oder Rad, danach beim ersten Satz jeder Übung nur die Hälfte des Gewichts.</p>
       <p><b>Grundsatz:</b> Lass immer 1–2 Wiederholungen im Tank.</p>
-    </div>
-    <section>
-      <div class="shead"><h2>Satzpause</h2><div class="mono">startet beim Abhaken</div></div>
-      <div class="seg">${REST_OPTIONS.map((s) => `<button data-act="rest" data-sec="${s}" class="${state.settings.rest === s ? 'on' : ''}">${s} s</button>`).join('')}</div>
-    </section>`;
+    </div>`;
   renderTabs();
 }
 
@@ -496,10 +474,7 @@ function setRow(ex, s, k) {
       (ex.mode === 'weight' ? field('weight', 'kg', k, num(s.weight), true) : '') +
       field('reps', valueUnit(ex), k, s.reps, false, ex.repRange[1]);
   }
-  return `<div class="set ${cls} ${s.done ? 'done' : ''}" data-i="${k}">
-    <span class="set-n">${k + 1}</span>${fields}
-    <button class="tick" data-act="tick" aria-pressed="${s.done}" aria-label="Satz ${k + 1} ${s.done ? 'wieder öffnen' : 'abhaken'}">✓</button>
-  </div>`;
+  return `<div class="set ${cls}" data-i="${k}"><span class="set-n">${k + 1}</span>${fields}</div>`;
 }
 
 function renderWorkout() {
@@ -510,14 +485,12 @@ function renderWorkout() {
   const entry = ensureEntry(ex);
   const hist = historyFor(ex.id);
   const sug = suggest(ex, hist);
-  const allDone = entry.sets.every((s) => s.done);
   const isLast = idx === list.length - 1;
-  const canRemove = entry.sets.length > 1 && !entry.sets[entry.sets.length - 1].done;
 
   const pill = (e, i) => {
-    const sets = a.entries[e.id]?.sets || [];
-    const cls = sets.length && sets.every((s) => s.done) ? 'done' : sets.some((s) => s.done) ? 'some' : '';
-    return `<button data-act="goto" data-i="${i}" class="pill ${cls} ${i === idx ? 'on' : ''}" aria-label="${esc(e.name)}">${i + 1}</button>`;
+    const en = a.entries[e.id];
+    const cls = !en ? '' : en.done ? 'done' : exerciseSets(e, en).length ? 'some' : '';
+    return `<button data-act="goto" data-i="${i}" class="pill ${cls} ${i === idx ? 'on' : ''}" aria-label="${esc(e.name)}${en?.done ? ' (erledigt)' : ''}">${en?.done ? '✓' : i + 1}</button>`;
   };
 
   $app.innerHTML = `
@@ -535,48 +508,67 @@ function renderWorkout() {
           <span class="dose">${dose(ex)}</span>
         </div>
       </div>
+      ${entry.done ? '<div class="donebar"><span>✓ Erledigt</span><button data-act="undo">Rückgängig</button></div>' : ''}
       ${hintBlock(ex, sug, hist[hist.length - 1])}
       <div class="sets">${entry.sets.map((s, k) => setRow(ex, s, k)).join('')}</div>
       <div class="set-tools">
         <button data-act="add-set">+ Satz</button>
-        ${canRemove ? '<button data-act="remove-set">− Satz</button>' : ''}
+        ${entry.sets.length > 1 ? '<button data-act="remove-set">− Satz</button>' : ''}
       </div>
       <div class="how">${ex.howTo}</div>
       <div class="watch">${ex.watchOut}</div>
       ${ex.mode === 'weight' ? '<p class="mono tank">1–2 Wiederholungen im Tank lassen</p>' : ''}
     </article>`;
 
+  const prev = `<button class="ghost narrow" data-act="prev" ${idx === 0 ? 'disabled' : ''} aria-label="Zurück">←</button>`;
+  const next = `<button class="ghost" data-act="${isLast ? 'finish' : 'next'}">${isLast ? 'Abschluss' : 'Weiter →'}</button>`;
   $bar.hidden = false;
   $bar.className = 'bar wk';
-  $bar.innerHTML = `
-    <button class="ghost" data-act="prev" ${idx === 0 ? 'disabled' : ''}>← Zurück</button>
-    <button class="primary ${allDone ? 'hot' : ''}" data-act="${isLast ? 'finish' : 'next'}">${isLast ? 'Abschließen' : 'Weiter →'}</button>`;
+  $bar.innerHTML = entry.done
+    ? `${prev}<button class="primary" data-act="${isLast ? 'finish' : 'next'}">${isLast ? 'Abschließen' : 'Weiter →'}</button>`
+    : `${prev}${next}<button class="primary hot wide" data-act="check">Erledigt ✓</button>`;
   keepAwake();
 }
 
 function renderFinish() {
   const a = state.active;
   const list = dayExercises(a.day);
-  let count = 0;
+  let saved = 0;
+  const open = [];
   const rows = list
-    .map((ex) => {
-      const sets = (a.entries[ex.id]?.sets || []).filter((s) => s.done);
-      if (sets.length) count++;
-      const txt = sets.length ? sets.map((s) => setLabel(ex, toSaved(ex, s))).join(' · ') : '—';
-      return `<li><span>${esc(ex.name)}</span><span class="mono-v">${txt}</span></li>`;
+    .map((ex, i) => {
+      const entry = a.entries[ex.id];
+      const sets = entry ? exerciseSets(ex, entry) : [];
+      const txt = sets.map((s) => setLabel(ex, toSaved(ex, s))).join(' · ');
+      const name = esc(ex.name);
+      if (entry?.done && sets.length) {
+        saved++;
+        return `<li><span>${name}</span><span class="mono-v">${txt}</span></li>`;
+      }
+      const jump = `data-act="goto-ex" data-i="${i}"`;
+      if (sets.length) {
+        saved++;
+        return `<li class="part"><button ${jump}><span>${name}</span><span class="mono-v">${txt}</span><span class="sub-s">nicht als erledigt markiert — wird trotzdem gespeichert</span></button></li>`;
+      }
+      open.push(ex);
+      return `<li class="open"><button ${jump}><span>${name}</span><span class="mono-v">offen →</span></button></li>`;
     })
     .join('');
+  const warn = open.length
+    ? `<p class="warn">${open.length === 1 ? '1 Übung ist noch offen und wird' : `${open.length} Übungen sind noch offen und werden`} nicht gespeichert. Tippe darauf, um sie nachzutragen.</p>`
+    : '';
 
   $app.innerHTML = `
     <header class="hd">
       <div class="mono">${esc(dayName(a.day))} · ${esc(fmtDate(isoDate(new Date(a.startedAt))))}</div>
       <h1>Abschließen</h1>
-      <p class="sub">${count} von ${list.length} Übungen mit abgehakten Sätzen. Nicht abgehakte Sätze werden nicht gespeichert.</p>
+      <p class="sub">${saved} von ${list.length} Übungen werden gespeichert.</p>
     </header>
+    ${warn}
     <ul class="summary">${rows}</ul>
     <button class="opt-row ${a.sauna ? 'on' : ''}" data-act="sauna" aria-pressed="${!!a.sauna}"><span class="box">${a.sauna ? '✓' : ''}</span>Danach Sauna</button>
     <div class="actions">
-      <button class="big primary" data-act="save" ${count ? '' : 'disabled'}>Einheit speichern</button>
+      <button class="big primary" data-act="save" ${saved ? '' : 'disabled'}>Einheit speichern</button>
       <button class="big ghost" data-act="resume">Zurück zur Einheit</button>
       ${askButton('link danger', 'Einheit verwerfen', 'Alle Einträge dieser Einheit gehen verloren.', 'Ja, verwerfen', { do: 'discard' })}
     </div>`;
@@ -715,18 +707,21 @@ const actions = {
   goto: (d) => showExercise(+d.i),
   prev: () => showExercise(state.active.current - 1),
   next: () => showExercise(state.active.current + 1),
-  tick: (d, el) => tickSet(+el.closest('.set').dataset.i),
+  check: () => markDone(true),
+  undo: unmarkDone,
+  'goto-ex': (d) => {
+    state.active.current = +d.i;
+    saveActive();
+    go('#/einheit');
+  },
   'add-set': addSet,
   'remove-set': removeSet,
   finish: () => go('#/fertig'),
   save: finishSession,
   discard: discardSession,
-  rest: (d) => setRest(+d.sec),
   sauna: toggleSauna,
   export: (d) => doExport(d.kind),
   'delete-session': (d) => removeSession(d.id),
-  'timer-add': (d) => timer.add(+d.sec),
-  'timer-stop': () => timer.stop(),
 };
 
 document.addEventListener('click', (e) => {
@@ -738,9 +733,19 @@ $app.addEventListener('input', (e) => {
   const inp = e.target.closest('input[data-f]');
   if (!inp || !state.active) return;
   inp.classList.remove('need');
-  const ex = currentExercise();
-  const s = state.active.entries[ex.id].sets[+inp.closest('.set').dataset.i];
-  s[inp.dataset.f] = parseNum(inp.value);
+  const sets = state.active.entries[currentExercise().id].sets;
+  const k = +inp.closest('.set').dataset.i;
+  const f = inp.dataset.f;
+  const old = sets[k][f];
+  sets[k][f] = parseNum(inp.value);
+  // Gewicht und Stufe gelten für die folgenden Sätze mit, solange diese nicht abweichen.
+  if (f === 'weight' || f === 'level') {
+    for (let j = k + 1; j < sets.length && sets[j][f] === old; j++) {
+      sets[j][f] = sets[k][f];
+      const other = $app.querySelector(`.set[data-i="${j}"] input[data-f="${f}"]`);
+      if (other) other.value = f === 'weight' ? num(sets[j][f]) : (sets[j][f] ?? '');
+    }
+  }
   saveActiveSoon();
 });
 
@@ -784,7 +789,10 @@ async function init() {
     }
     state.sessions = await getSessions();
     state.active = (await getMeta('active')) || null;
-    state.settings = { ...state.settings, ...((await getMeta('settings')) || {}) };
+    // Einheit aus der Zeit mit Satz-Häkchen: erledigt, wenn alle Sätze abgehakt waren.
+    for (const e of Object.values(state.active?.entries || {})) {
+      if (typeof e.done !== 'boolean') e.done = e.sets.length > 0 && e.sets.every((s) => s.done);
+    }
     state.lastExport = (await getMeta('lastExport')) || null;
   } catch (err) {
     console.error(err);
@@ -796,6 +804,13 @@ async function init() {
 
 // Bitte darum, dass iOS/Chrome den Speicher nicht einfach aufräumt.
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch((err) => console.warn(err));
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  // Neue Version übernehmen, sobald sie aktiv ist — nur nicht mitten in der Einheit.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && location.hash !== '#/einheit') location.reload();
+  });
+  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn(err));
+}
 
 init();

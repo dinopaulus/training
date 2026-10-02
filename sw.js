@@ -2,7 +2,7 @@
 // (im Studio ist das Netz schlecht). Im Hintergrund wird nachgeladen, die
 // neue Version greift beim nächsten Start. VERSION hochzählen, wenn Dateien
 // dazukommen oder wegfallen — dann wird der alte Cache aufgeräumt.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `training-${VERSION}`;
 const ASSETS = [
   './',
@@ -11,7 +11,6 @@ const ASSETS = [
   './js/app.js',
   './js/db.js',
   './js/progression.js',
-  './js/timer.js',
   './data/days.json',
   './data/exercises.json',
   './data/seed-sessions.json',
